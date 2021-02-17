@@ -1,0 +1,112 @@
+// 2D model of space and phenotype
+// Phenotype is controlled by inversion copy number
+// Selection is varies continuously along the y-axis
+
+initialize() {
+  defineConstant("sigma_D", 0.1); // Dispersal
+  defineConstant("sigma_P", 0.65); // Phenotype mate choice (strength of assortativity)
+  defineConstant("slope", 2.0);
+  defineConstant("N1", 1000); // Population size
+  defineConstant("N2",500); // Number starting with inversion
+  defineConstant("alpha",0.4); // Strength of selection
+
+  initializeSLiMOptions(dimensionality="xyz");
+  initializeMutationRate(1e-7);
+  initializeMutationType("m1", 0.5, "f", 0.0);
+  initializeMutationType("m2", 0.5, "f", 1.0);  // m2 will be the inversion marker.
+  m2.color = "red";
+  m2.convertToSubstitution = F;
+  initializeGenomicElementType("g1", m1, 1.0);
+  initializeGenomicElement(g1, 0, 99999);
+  initializeRecombinationRate(1e-6);
+}
+
+fitness(m2) {
+		// Making the fitness frequency dependent
+		f = sim.mutationFrequencies(NULL,mut);
+		return 1.0 - (f - 0.5) * 0.2;
+}
+
+recombination() {
+// creating the architechture of the inversion by suppressing recombination
+  // is the parent homozygous? If so, recombination is unchanged
+  if (genome1.containsMarkerMutation(m2,25000) ==
+      genome2.containsMarkerMutation(m2,25000))
+    return F;
+
+  // are there any breakpoints occuring within the inversion?
+  inInv = (breakpoints > 25000) & (breakpoints < 75000);
+  // If not, recombination is unchanged
+  if (!any(inInv))
+    return F;
+
+  // subset the variable breakpoints to remove proposed breakpoints in the inv
+  breakpoints = breakpoints[!inInv];
+  return T;
+}
+
+1 late() {
+  sim.addSubpop("p1", N1);
+  p1.setSpatialBounds(c(0.0, 0.0, -slope, 2.0, 2.0, slope));
+  p1.individuals.setSpatialPosition(p1.pointUniform(N1));
+  p1.individuals.z = 0.0; // Phenotype storage
+
+  // give the the inversion to half of individuals
+  inverted = sample(p1.individuals, N2);
+  inverted.genomes.addNewDrawnMutation(m2, 25000);
+}
+
+modifyChild() {
+  // draw a child position near the first parent, within bounds
+  do pos = c(parent1.spatialPosition[0:1] + rnorm(2, 0, sigma_D), 0.0);
+  while (!p1.pointInBounds(pos));
+  child.setSpatialPosition(pos);
+
+  return T;
+}
+
+mateChoice() {
+  // Assortative mating
+  phenotype = individual.z;
+  others = sourceSubpop.individuals.z;
+  return weights * dnorm(others, phenotype, sigma_P);
+}
+
+1: late() {
+  // Generate phenotype based on Inv copy number
+  inds = sim.subpopulations.individuals;
+  phenotypes = inds.sumOfMutationsOfType(m2);
+  optima = (inds.y); //*slope;
+  inds.fitnessScaling = exp(-alpha*(phenotypes-optima)^2);
+  inds.z = phenotypes;
+
+	// Color individuals by phenotype
+	for (ind in inds) {
+	hue = ((ind.z + slope) / (slope * 2)) * 0.66;
+	ind.color = rgb2color(hsv2rgb(c(hue, 1.0, 1.0)));
+	}
+}
+
+1:10000 late() {
+  if (sim.generation % 1000 != 0)
+    return;
+  // Assess the prevalence of the inversion in p1
+  pScr = "sum(applyValue.genomes.containsMarkerMutation(m2, 25000));";
+  p = sapply(p1.individuals, pScr);
+  p__ = sum(p == 0);
+  pI_ = sum(p == 1);
+  pII = sum(p == 2);
+
+  cat("\n##Generation " + format("%4d", sim.generation) + ": " + "\n");
+  cat("#Count\n");
+  cat(format("%3d", p__) + " AA   ");
+  cat(format("%3d", pI_) + " AB   ");
+  cat(format("%3d", pII) + " BB\n");
+
+  // Sample 100 individuals and output ind.z and ind.y
+  sampledInds = sample(sim.subpopulations.individuals, 100);
+  cat("#Lat" + "\n");
+  cat(sampledInds.y, "\t");
+  cat("\n#Karyo" + "\n");
+  cat(sampledInds.z, "\t");
+}

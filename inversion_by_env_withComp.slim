@@ -84,7 +84,7 @@ mateChoice() {
   inds = sim.subpopulations.individuals;
   phenotypes = inds.sumOfMutationsOfType(m2);
   optima = (inds.y); //*slope;
-  inds.fitnessScaling = exp(-alpha*(phenotypes-optima)^2); //4 - (phenotypes - optima)^2 * 0.05; //1 +
+  inds.fitnessScaling = exp(-alpha*(phenotypes-optima)^2); 
   inds.z = phenotypes;
 
 	// Color individuals by phenotype
